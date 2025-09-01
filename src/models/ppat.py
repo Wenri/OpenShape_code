@@ -103,8 +103,8 @@ class PointPatchTransformer(nn.Module):
 
         centroid_delta = centroids.unsqueeze(-1) - centroids.unsqueeze(-2)
         x = self.transformer(x, centroid_delta)
-
-        return x[:, 0]
+        # return full sequence: [CLS, patch_1, ..., patch_P]  (B, 1+P, D)
+        return x
 
 
 class Projected(nn.Module):
@@ -112,20 +112,28 @@ class Projected(nn.Module):
         super().__init__()
         self.ppat = ppat
         self.proj = proj
+        self.return_tokens = False
 
     def forward(self, xyz: torch.Tensor, features: torch.Tensor, device=None, quantization_size=0.05):
-        return self.proj(self.ppat(
+        seq = self.ppat(
             xyz.transpose(-1, -2).contiguous(), features.transpose(-1, -2).contiguous()
-        ))
+        )                                         # (B, 1+P, D)
+        cls = self.proj(seq[:, 0])               # (B, C)
+        if self.return_tokens:
+            toks = self.proj(seq[:, 1:])         # (B, P, C)
+            return cls, toks
+        return cls
 
 
 def make(cfg):
     scaling = cfg.model.scaling
     if scaling == 1:
-        return Projected(
+        model = Projected(
             PointPatchTransformer(256, 6, 4, 1024, 96, 64, 0.4, 256, cfg.model.in_channel),
-            nn.Linear(256, cfg.model.out_channel)
+            nn.Linear(256, cfg.model.proj_dim)
         )
+        model.return_tokens = bool(getattr(cfg.training, "use_text_token_interaction", False))
+        return model
     if scaling == 2:
         return Projected(
             PointPatchTransformer(512, 6, 8, 1024, 128, 64, 0.4, 256, cfg.model.in_channel),
@@ -137,10 +145,12 @@ def make(cfg):
             nn.Linear(512, cfg.model.out_channel)
         )
     if scaling == 4:
-        return Projected(
+        model = Projected(
             PointPatchTransformer(512, 12, 8, 512*3, 256, 384, 0.2, 64, cfg.model.in_channel),
             nn.Linear(512, cfg.model.out_channel)
         )
+        model.return_tokens = bool(getattr(cfg.training, "use_text_token_interaction", False))
+        return model
     if scaling == 5:
         return Projected(
             PointPatchTransformer(768, 12, 12, 768*3, 256, 512, 0.2, 64, cfg.model.in_channel),

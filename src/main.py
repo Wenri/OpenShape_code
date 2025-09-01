@@ -4,7 +4,7 @@ import logging
 import shutil
 import data
 import models
-import MinkowskiEngine as ME
+# import MinkowskiEngine as ME
 import torch
 import wandb
 from omegaconf import OmegaConf
@@ -73,8 +73,8 @@ def main(rank, world_size, cli_args, extras):
             logging.info("Using SyncBatchNorm")
 
         logit_scale = LogitScaleNetwork(config.training.logit_scale_init).to(config.device)
-        image_proj = torch.nn.Linear(config.model.out_channel, config.model.out_channel).to(config.device)
-        text_proj = torch.nn.Linear(config.model.out_channel, config.model.out_channel).to(config.device)
+        image_proj = torch.nn.Linear(config.model.out_channel, config.model.proj_dim).to(config.device)
+        text_proj = torch.nn.Linear(config.model.out_channel, config.model.proj_dim).to(config.device)
 
         logit_scale = DDP(logit_scale, device_ids=[rank], output_device=rank, find_unused_parameters=False)
         image_proj = DDP(image_proj, device_ids=[rank], output_device=rank, find_unused_parameters=False)
@@ -126,7 +126,7 @@ def main(rank, world_size, cli_args, extras):
 
 if __name__ == '__main__':
     cli_args, extras = parse_args(sys.argv[1:])
-    world_size = cli_args.ngpu  
+    world_size = cli_args.ngpu 
     mp.spawn(
         main,
         args=(world_size, cli_args, extras),

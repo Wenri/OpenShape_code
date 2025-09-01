@@ -1,4 +1,4 @@
-from . import Minkowski, ppat
+from . import ppat
 
 def make(config):
     if config.model.name == "MinkowskiFCNN":
