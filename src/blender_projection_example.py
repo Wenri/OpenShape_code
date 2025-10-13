@@ -14,7 +14,7 @@ def load_demo_point_cloud(file_path=None, num_points=10000, y_up=True, normalize
     """Load point cloud using the same logic as data.py
 
     Args:
-        file_path: Path to .npy file with 'xyz' and 'rgb' keys (like data.py) or .glb file
+        file_path: Path to .npy file with 'xyz' and 'rgb' keys (like data.py), .glb file, or .ply file
         num_points: Number of points to sample
         y_up: Whether to swap Y and Z axes
         normalize: Whether to normalize points
@@ -76,6 +76,40 @@ def load_demo_point_cloud(file_path=None, num_points=10000, y_up=True, normalize
 
                 print(f"Loaded {n} vertices from GLB, sampled {len(xyz)} points")
 
+            elif file_path.endswith('.ply'):
+                # Load PLY file using Open3D
+                print(f"Loading PLY file from {file_path}")
+                pcd = o3d.io.read_point_cloud(file_path)
+
+                xyz = np.asarray(pcd.points).astype(np.float32)
+
+                # Handle colors
+                if pcd.has_colors():
+                    rgb = np.asarray(pcd.colors).astype(np.float32)
+                else:
+                    # Default color if no colors
+                    rgb = np.ones((len(xyz), 3)) * 0.7
+
+                # Normalize and center the point cloud
+                bbox_min = xyz.min(axis=0)
+                bbox_max = xyz.max(axis=0)
+                scale = 1.0 / np.max(bbox_max - bbox_min)
+                xyz = (xyz - (bbox_min + bbox_max) / 2) * scale * 0.8
+
+                # Sample points if we have more than requested
+                n = len(xyz)
+                if n > num_points:
+                    idx = np.random.choice(n, num_points, replace=False)
+                    xyz = xyz[idx]
+                    rgb = rgb[idx]
+                elif n < num_points:
+                    # Duplicate points if we have fewer than requested
+                    idx = np.random.choice(n, num_points, replace=True)
+                    xyz = xyz[idx]
+                    rgb = rgb[idx]
+
+                print(f"Loaded {n} points from PLY, sampled {len(xyz)} points")
+
             else:
                 # Load .npy file using exact same logic as data.py
                 print(f"Loading point cloud from {file_path}")
@@ -129,12 +163,13 @@ def example_exact_blender_matching():
     print_blender_camera_info()
 
     print(f"\nLoading and preprocessing point cloud...")
-    dataset_path = '/data/bingchen/data/objaverse-processed/merged_for_training_final'
+    # dataset_path = '/data/bingchen/data/objaverse-processed/merged_for_training_final'
+    dataset_path = '/data/bingchen/KeypointNet/ShapeNetCore.v2.ply'
     model_cls = '02691156'
     model_id = '1b300fd9ad4050e6301fa0a0663ee996'
     xyz, rgb = load_demo_point_cloud(
-        file_path=f'{dataset_path}/ShapeNet/{model_cls}/{model_id}.npy',
-        normalize=False
+        file_path=f'{dataset_path}/{model_cls}/{model_id}.ply',
+        y_up=False, normalize=False
     )
     print(f"Point cloud: {len(xyz)} points")
 
@@ -157,24 +192,6 @@ def example_exact_blender_matching():
 
     return results, xyz, rgb
 
-def example_all_12_views():
-    """Project point cloud from all 12 default viewpoints"""
-    print("\n=== All 12 Blender Viewpoints ===")
-
-    xyz, rgb = load_demo_point_cloud()
-
-    results = []
-    for view_idx in range(12):
-        result = project_points_blender_style(
-            xyz, rgb, view_index=view_idx
-        )
-        results.append(result)
-
-        pos = result['camera_pose'][:3, 3]
-        print(f"View {view_idx:2d}: {len(result['pixels']):4d} points, "
-              f"pos=({pos[0]:+.2f}, {pos[1]:+.2f}, {pos[2]:+.2f})")
-
-    return results
 
 def visualize_blender_projection(results, xyz, rgb, save_path="blender_projection_demo.png"):
     """Visualize projection results matching Blender output"""
@@ -223,62 +240,6 @@ def visualize_blender_projection(results, xyz, rgb, save_path="blender_projectio
 
     return color_image, depth_image
 
-def example_point_to_pixel_mapping():
-    """Show exact point-to-pixel correspondence"""
-    print("\n=== Point-to-Pixel Mapping Example ===")
-
-    xyz, rgb = load_demo_point_cloud()
-
-    # Project using view 0
-    result = project_points_blender_style(xyz, rgb, view_index=0)
-
-    print(f"Original points: {len(xyz)}")
-    print(f"Visible points: {len(result['valid_indices'])}")
-
-    # Show mapping for first 10 visible points
-    print(f"\nFirst 10 point-to-pixel mappings:")
-    print(f"{'Point ID':<8} {'3D Position':<25} {'2D Pixel':<15} {'Depth':<8}")
-    print("-" * 60)
-
-    for i in range(min(10, len(result['valid_indices']))):
-        orig_idx = result['valid_indices'][i]
-        point_3d = xyz[orig_idx]
-        pixel_2d = result['pixels'][i]
-        depth = result['depths'][i]
-
-        print(f"{orig_idx:<8} ({point_3d[0]:+.3f},{point_3d[1]:+.3f},{point_3d[2]:+.3f}) "
-              f"-> ({pixel_2d[0]:6.1f},{pixel_2d[1]:6.1f}) {depth:6.3f}")
-
-    return result
-
-def compare_with_original_projection():
-    """Compare Blender-style projection with generic projection"""
-    print("\n=== Comparing Blender vs Generic Projection ===")
-
-    from utils.projection import project_point_cloud_to_image
-
-    xyz, rgb = load_demo_point_cloud()
-
-    # Blender-style projection
-    blender_result = project_points_blender_style(xyz, rgb, view_index=0)
-
-    # Generic projection with similar parameters
-    generic_result = project_point_cloud_to_image(
-        xyz, rgb,
-        fx=560.0, fy=560.0, cx=256.0, cy=256.0,  # Approximate Blender values
-        camera_position=[1.06, 0.61, 0.61],     # Approximate view 0 position
-        camera_target=[0, 0, 0]
-    )
-
-    print(f"Blender projection: {len(blender_result['pixels'])} visible points")
-    print(f"Generic projection: {len(generic_result['pixels'])} visible points")
-
-    # Check difference in camera matrices
-    print(f"\nCamera matrix comparison:")
-    print(f"Blender K[0,0] (fx): {blender_result['camera_matrix'][0,0]:.1f}")
-    print(f"Generic  K[0,0] (fx): 560.0")
-
-    return blender_result, generic_result
 
 if __name__ == "__main__":
     print("Blender-Style Point Cloud Projection Examples")
@@ -288,12 +249,6 @@ if __name__ == "__main__":
     try:
         results, xyz, rgb = example_exact_blender_matching()
 
-        all_results = example_all_12_views()
-
-        mapping_result = example_point_to_pixel_mapping()
-
-        blender_vs_generic = compare_with_original_projection()
-
         # Visualize selected views
         selected_results = [results[0], results[1], results[2]]  # Views 0, 4, 8
         visualize_blender_projection(selected_results, xyz, rgb)
@@ -301,34 +256,6 @@ if __name__ == "__main__":
         print("\n" + "="*55)
         print("SUCCESS: All examples completed!")
         print("Check 'blender_projection_demo.png' for visualizations.")
-        print("\nUsage in your code:")
-        print("""
-from blender_projection_example import load_demo_point_cloud
-from utils.blender_projection import project_points_blender_style
-
-# Load point cloud using same logic as data.py
-xyz, rgb = load_demo_point_cloud(
-    file_path="path/to/your/file.npy",      # Optional: .npy with 'xyz'/'rgb' keys or .glb file
-    num_points=10000,                        # Same as data.py default
-    y_up=True,                              # Swap Y/Z axes like data.py
-    normalize=True                          # Normalize like data.py
-)
-
-# Project using exact Blender camera setup
-result = project_points_blender_style(
-    points_3d=xyz,                  # (N, 3) normalized points from data.py loading
-    colors=rgb,                     # (N, 3) RGB values from data.py loading
-    view_index=0,                   # 0-11 (matches render_single_glb.py)
-    camera_distance=1.2             # Same as --camera_dist
-)
-
-# Access results
-pixels = result['pixels']              # Exact pixel coordinates
-indices = result['valid_indices']      # Which points are visible
-depths = result['depths']              # Depth values (like Blender)
-camera_pose = result['camera_pose']    # 4x4 camera matrix
-        """)
-
     except Exception as e:
         print(f"Error in examples: {e}")
         import traceback
