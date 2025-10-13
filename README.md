@@ -48,7 +48,7 @@ conda install -c dglteam/label/cu113 dgl
 ```
 2. Install the following packages:
 ```
-pip install huggingface_hub wandb omegaconf torch_redstone einops tqdm open3d 
+pip install huggingface_hub wandb omegaconf torch_redstone einops tqdm open3d trimesh matplotlib
 ```
 
 ## Inference
@@ -58,6 +58,22 @@ Try the following example code for computing OpenShape embeddings of 3D point cl
 python3 src/example.py
 ```
 Please normalize the input point cloud and ensure the gravity axis of the point cloud is aligned with the pre-trained models.
+
+### Point Cloud Projection Examples
+
+Try the projection examples to understand how to project 3D point clouds to 2D images using exact Blender camera matching:
+
+```
+python3 src/projection_example.py        # Generic projection utilities
+python3 src/blender_projection_example.py  # Blender-exact camera matching
+```
+
+The projection utilities provide:
+- Exact camera matching with Blender rendering setup
+- Support for multiple file formats (GLB, GLTF, PLY, NPY)
+- 12 standard viewpoints matching rendered images
+- Point-to-pixel correspondence tracking
+- Depth image generation
 
 ## Training
 

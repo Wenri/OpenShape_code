@@ -163,15 +163,9 @@ def example_exact_blender_matching():
     print_blender_camera_info()
 
     print(f"\nLoading and preprocessing point cloud...")
-    # dataset_path = '/data/bingchen/data/objaverse-processed/merged_for_training_final'
-    dataset_path = '/data/bingchen/KeypointNet/ShapeNetCore.v2.ply'
-    model_cls = '02691156'
-    model_id = '1b300fd9ad4050e6301fa0a0663ee996'
-    xyz, rgb = load_demo_point_cloud(
-        file_path=f'{dataset_path}/{model_cls}/{model_id}.ply',
-        y_up=False, normalize=False
-    )
+    xyz, rgb = load_demo_point_cloud()
     print(f"Point cloud: {len(xyz)} points")
+    print(f"XYZ range: [{xyz.min():.3f}, {xyz.max():.3f}]")
 
     # Test projection with different viewpoints
     results = []
@@ -191,6 +185,25 @@ def example_exact_blender_matching():
         print(f"  Depth range: [{result['depths'].min():.3f}, {result['depths'].max():.3f}]")
 
     return results, xyz, rgb
+
+def example_all_12_views():
+    """Project point cloud from all 12 default viewpoints"""
+    print("\n=== All 12 Blender Viewpoints ===")
+
+    xyz, rgb = load_demo_point_cloud()
+
+    results = []
+    for view_idx in range(12):
+        result = project_points_blender_style(
+            xyz, rgb, view_index=view_idx
+        )
+        results.append(result)
+
+        pos = result['camera_pose'][:3, 3]
+        print(f"View {view_idx:2d}: {len(result['pixels']):4d} points, "
+              f"pos=({pos[0]:+.2f}, {pos[1]:+.2f}, {pos[2]:+.2f})")
+
+    return results
 
 
 def visualize_blender_projection(results, xyz, rgb, save_path="blender_projection_demo.png"):
@@ -240,6 +253,62 @@ def visualize_blender_projection(results, xyz, rgb, save_path="blender_projectio
 
     return color_image, depth_image
 
+def example_point_to_pixel_mapping():
+    """Show exact point-to-pixel correspondence"""
+    print("\n=== Point-to-Pixel Mapping Example ===")
+
+    xyz, rgb = load_demo_point_cloud()
+
+    # Project using view 0
+    result = project_points_blender_style(xyz, rgb, view_index=0)
+
+    print(f"Original points: {len(xyz)}")
+    print(f"Visible points: {len(result['valid_indices'])}")
+
+    # Show mapping for first 10 visible points
+    print(f"\nFirst 10 point-to-pixel mappings:")
+    print(f"{'Point ID':<8} {'3D Position':<25} {'2D Pixel':<15} {'Depth':<8}")
+    print("-" * 60)
+
+    for i in range(min(10, len(result['valid_indices']))):
+        orig_idx = result['valid_indices'][i]
+        point_3d = xyz[orig_idx]
+        pixel_2d = result['pixels'][i]
+        depth = result['depths'][i]
+
+        print(f"{orig_idx:<8} ({point_3d[0]:+.3f},{point_3d[1]:+.3f},{point_3d[2]:+.3f}) "
+              f"-> ({pixel_2d[0]:6.1f},{pixel_2d[1]:6.1f}) {depth:6.3f}")
+
+    return result
+
+def compare_with_original_projection():
+    """Compare Blender-style projection with generic projection"""
+    print("\n=== Comparing Blender vs Generic Projection ===")
+
+    from utils.projection import project_point_cloud_to_image
+
+    xyz, rgb = load_demo_point_cloud()
+
+    # Blender-style projection
+    blender_result = project_points_blender_style(xyz, rgb, view_index=0)
+
+    # Generic projection with similar parameters
+    generic_result = project_point_cloud_to_image(
+        xyz, rgb,
+        fx=560.0, fy=560.0, cx=256.0, cy=256.0,  # Approximate Blender values
+        camera_position=[1.06, 0.61, 0.61],     # Approximate view 0 position
+        camera_target=[0, 0, 0]
+    )
+
+    print(f"Blender projection: {len(blender_result['pixels'])} visible points")
+    print(f"Generic projection: {len(generic_result['pixels'])} visible points")
+
+    # Check difference in camera matrices
+    print(f"\nCamera matrix comparison:")
+    print(f"Blender K[0,0] (fx): {blender_result['camera_matrix'][0,0]:.1f}")
+    print(f"Generic  K[0,0] (fx): 560.0")
+
+    return blender_result, generic_result
 
 if __name__ == "__main__":
     print("Blender-Style Point Cloud Projection Examples")
@@ -249,6 +318,12 @@ if __name__ == "__main__":
     try:
         results, xyz, rgb = example_exact_blender_matching()
 
+        all_results = example_all_12_views()
+
+        mapping_result = example_point_to_pixel_mapping()
+
+        blender_vs_generic = compare_with_original_projection()
+
         # Visualize selected views
         selected_results = [results[0], results[1], results[2]]  # Views 0, 4, 8
         visualize_blender_projection(selected_results, xyz, rgb)
@@ -256,6 +331,25 @@ if __name__ == "__main__":
         print("\n" + "="*55)
         print("SUCCESS: All examples completed!")
         print("Check 'blender_projection_demo.png' for visualizations.")
+        print("\nUsage in your code:")
+        print("""
+from utils.blender_projection import project_points_blender_style
+
+# Project using exact Blender camera setup
+result = project_points_blender_style(
+    points_3d=your_normalized_xyz,  # (N, 3) normalized points
+    colors=your_rgb,                # (N, 3) RGB values
+    view_index=0,                   # 0-11 (matches render_single_glb.py)
+    camera_distance=1.2             # Same as --camera_dist
+)
+
+# Access results
+pixels = result['pixels']              # Exact pixel coordinates
+indices = result['valid_indices']      # Which points are visible
+depths = result['depths']              # Depth values (like Blender)
+camera_pose = result['camera_pose']    # 4x4 camera matrix
+        """)
+
     except Exception as e:
         print(f"Error in examples: {e}")
         import traceback
